@@ -254,4 +254,8 @@ public interface GenericObjectPoolMXBean {
      * @return See {@link GenericObjectPool#listAllObjects()}
      */
     Set<DefaultPooledObjectInfo> listAllObjects();
+
+    // TODO: log destroy calls
+
+    void logDestroyCalls();
 }

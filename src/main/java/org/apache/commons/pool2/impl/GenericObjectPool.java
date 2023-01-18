@@ -16,11 +16,12 @@
  */
 package org.apache.commons.pool2.impl;
 
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.Charset;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -118,6 +119,10 @@ public class GenericObjectPool<T> extends BaseGenericObjectPool<T>
     private final Object makeObjectCountLock = new Object();
 
     private final LinkedBlockingDeque<PooledObject<T>> idleObjects;
+
+    protected Map<String, Integer> destroyCalls = new ConcurrentHashMap<>();
+
+    protected PrintWriter logWriter = new PrintWriter(new OutputStreamWriter(System.out, Charset.defaultCharset()));
 
     /**
      * Creates a new {@code GenericObjectPool} using defaults from
@@ -604,6 +609,16 @@ public class GenericObjectPool<T> extends BaseGenericObjectPool<T>
      *                   cleanly
      */
     private void destroy(final PooledObject<T> toDestroy, final DestroyMode destroyMode) throws Exception {
+        final String stackTrace = throwableToString(new Throwable());
+
+        Integer calls = destroyCalls.get(stackTrace);
+        if (calls == null) {
+            calls = 0;
+        }
+        calls++;
+
+        destroyCalls.put(stackTrace, calls);
+
         toDestroy.invalidate();
         idleObjects.remove(toDestroy);
         allObjects.remove(new IdentityWrapper<>(toDestroy.getObject()));
@@ -613,6 +628,18 @@ public class GenericObjectPool<T> extends BaseGenericObjectPool<T>
             destroyedCount.incrementAndGet();
             createCount.decrementAndGet();
         }
+    }
+
+    private String throwableToString(final Throwable t) {
+        if (t == null) {
+            return "";
+        }
+
+        final StringBuilder sb = new StringBuilder();
+        final StringWriter sw = new StringWriter();
+        t.printStackTrace(new PrintWriter(sw));
+
+        return sw.toString();
     }
 
     /**
@@ -960,6 +987,24 @@ public class GenericObjectPool<T> extends BaseGenericObjectPool<T>
     public Set<DefaultPooledObjectInfo> listAllObjects() {
         return allObjects.values().stream().map(DefaultPooledObjectInfo::new).collect(Collectors.toSet());
     }
+
+    @Override
+    public void logDestroyCalls() {
+        final StringBuilder sb = new StringBuilder();
+        sb.append("*** Start Destroy Calls ***\n");
+
+        for (String stackTrace : destroyCalls.keySet()) {
+            final Integer count = destroyCalls.get(stackTrace);
+
+            sb.append("Destroy called ").append(count).append(" times from: \n");
+            sb.append(stackTrace).append("\n\n");
+        }
+
+        sb.append("*** End Destroy Calls ***\n\n");
+        logWriter.println(sb);
+        logWriter.flush();
+    }
+
     /**
      * Tries to ensure that {@link #getMinIdle()} idle instances are available
      * in the pool.
@@ -1181,4 +1226,11 @@ public class GenericObjectPool<T> extends BaseGenericObjectPool<T>
         }
     }
 
+    public PrintWriter getLogWriter() {
+        return logWriter;
+    }
+
+    public void setLogWriter(final PrintWriter logWriter) {
+        this.logWriter = logWriter;
+    }
 }
